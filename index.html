@@ -6,8 +6,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="A Small Sky">
+<meta name="description" content="for Iraj">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://tempest-zero.github.io/a-small-sky/">
 <meta property="og:title" content="A Small Sky">
 <meta property="og:description" content="for Iraj">
+<meta property="og:image" content="https://tempest-zero.github.io/a-small-sky/card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" href="icon-192.png">
@@ -99,7 +106,11 @@ const GIFT = {
   arrival: 'happy birthday, {name}.',
   tapHint: 'tap to begin\n(sound on)',
   holdHint: 'press and hold',
-  drawHint: 'now draw.'
+  drawHint: 'now draw.',
+  // a quiet line a while after the ending, only on the hosted link and only if it isn't on her phone yet
+  keepTap: 'want to add this to your phone? tap here.',                                   // Android Chrome: one tap
+  keepIos: 'want to add this to your phone? tap share, then add to home screen.',         // iPhone
+  keepMenu: 'want to add this to your phone? open the menu, then add to home screen.'     // other Android browsers
 };
 
 // ── the feel ──
@@ -129,7 +140,7 @@ const C_GOLD = hex('--spark-gold', '#ffd77a'), C_ROSE = hex('--spark-rose', '#ff
 
 // palette slots: 0-7 are the sky ramp, the rest are fixed sprites
 const I_A = 8, I_AR = 9, I_B = 10, I_BR = 11, I_STR = 12, I_SHORE = 13, I_INK = 14, I_SHADOW = 15,
-      I_GOLD = 16, I_ROSE = 17, I_WHITE = 18, NONE = 255;
+      I_GOLD = 16, I_ROSE = 17, I_WHITE = 18, I_SOFT = 19, NONE = 255;
 const SKY = new Uint32Array(32), WAT = new Uint32Array(32);
 const pack = (r, g, b) => (0xff000000 | (b << 16) | (g << 8) | r) >>> 0;
 const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
@@ -149,6 +160,7 @@ function buildLUT(w, strT) {
   set(I_SHORE, mix(ramp[0], [0, 0, 0], 0.45));
   set(I_INK, C_INK); set(I_SHADOW, C_SHADOW);
   set(I_GOLD, C_GOLD); set(I_ROSE, C_ROSE); set(I_WHITE, C_WHITE);
+  set(I_SOFT, mix(C_INK, ramp[3], 0.38));      // quieter ink, for the line that offers to keep it
 }
 
 // ── small helpers ──
@@ -352,7 +364,10 @@ function makeClouds() {
 }
 function buildTexts() {
   const sub = s => String(s).replace(/\{name\}/g, GIFT.name);
-  const defs = { opening: sub(GIFT.opening), arrival: sub(GIFT.arrival), tap: GIFT.tapHint, hold: GIFT.holdHint, draw: GIFT.drawHint };
+  const defs = {
+    opening: sub(GIFT.opening), arrival: sub(GIFT.arrival), tap: GIFT.tapHint, hold: GIFT.holdHint, draw: GIFT.drawHint,
+    keepTap: GIFT.keepTap, keepIos: GIFT.keepIos, keepMenu: GIFT.keepMenu
+  };
   GIFT.lines.forEach((l, i) => { defs['l' + i] = sub(l); });
   const maxW = Math.min(W - 14, 190);
   for (const k in defs) { const a = TX[k] ? TX[k].a : 0; TX[k] = layoutText(defs[k], maxW); TX[k].a = a; }
@@ -389,12 +404,44 @@ function resize() {
 const S = {
   phase: 'intro', since: 0,                 // intro → part → main → arrive → free
   d: 0, warm: 0, orb: 1, theta: 0, arrived: 0,
-  down: false, held: false, heldTotal: 0, releasedAt: -9, pid: null, px: 0, py: 0, anchorX: 0, anchorY: 0,
+  down: false, held: false, heldTotal: 0, releasedAt: -9, pid: null, px: 0, py: 0, anchorX: 0, anchorY: 0, keepPress: false,
   pulse: 0, beat: 0, flash: 0, vib: 0, li: 0, burst: false,
   drawing: false, drawn: 0, lastMove: -9, lastNote: -9, noteDist: 0,
   lead: { x: 0, y: 0 }, fol: { x: 0, y: 0 }, path: [],
   emberAcc: 0, trA: 0, trB: 0, shoot: null, nextShoot: 1e9
 };
+// keeping it on her phone. Only the hosted copy has a manifest, so only that copy ever offers this,
+// and never when it is already running from a home screen.
+const KEEP_KEY = { keepTap: 'tap', keepIos: 'ios', keepMenu: 'menu' };
+const KEEP = { can: false, mode: null, evt: null, done: false, shown: 0 };
+(function () {
+  const mm = q => !!(window.matchMedia && matchMedia(q).matches);
+  const installed = navigator.standalone === true || mm('(display-mode: standalone)') || mm('(display-mode: fullscreen)');
+  KEEP.can = !!document.querySelector('link[rel="manifest"]') && !installed;
+  if (!KEEP.can) return;
+  const ua = navigator.userAgent || '';
+  const embedded = /; wv\)|Instagram|FBAN|FBAV|Line\//.test(ua);          // in-app browsers can't add to a home screen
+  const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (ios) { if (/Safari\//.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua) && !embedded) KEEP.mode = 'ios'; }
+  else if (/Android/.test(ua) && !embedded) KEEP.mode = 'menu';
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); KEEP.evt = e; KEEP.mode = 'tap'; });   // Chrome says it can install
+  window.addEventListener('appinstalled', () => { KEEP.done = true; KEEP.evt = null; });
+})();
+const keepTop = b => Math.round(H * 0.9) - b.h;
+function onKeepLine(mustBeVisible) {
+  if (S.phase !== 'free' || KEEP.done || KEEP.mode !== 'tap' || !KEEP.evt) return false;
+  const b = TX.keepTap;
+  if (!b || (mustBeVisible && b.a < 0.5)) return false;
+  const x0 = W / 2 - b.w / 2, y0 = keepTop(b);
+  return S.px > x0 - 8 && S.px < x0 + b.w + 8 && S.py > y0 - 8 && S.py < y0 + b.h + 8;
+}
+function keepIt() {
+  const e = KEEP.evt; if (!e) return;
+  KEEP.evt = null; KEEP.done = true;            // asked once; the phone's own dialog takes it from here
+  try { e.prompt(); } catch (err) {}
+  pluck(880, 0.12);
+}
+
 const P = [];     // particles: embers (0), trail (1), sparks (2)
 const RIP = [];   // rings from her finger: on the water they bend the reflection, in the sky they ping
 let T = 0, lastNow = 0, frameN = 0;
@@ -433,13 +480,17 @@ function startDraw() {
 function press() {
   audioStart();
   S.down = true;
+  if (onKeepLine(true)) { S.keepPress = true; return; }      // a tap on the keep line is not a drawing stroke
   if (S.phase !== 'intro') ripple(S.px, S.py);
   if (S.phase === 'free') startDraw();
 }
 function release() {
   audioStart();
+  const keep = S.keepPress && onKeepLine(false);
+  S.keepPress = false;
   S.down = false; S.drawing = false; S.releasedAt = T;
-  if (S.phase === 'intro') begin();
+  if (keep) keepIt();
+  else if (S.phase === 'intro') begin();
 }
 
 // ── where the two lights are ──
@@ -483,7 +534,7 @@ function spawnTrail(x, y, col) {
 function updateFree(dt) {
   const lead = S.lead, fol = S.fol, plx = lead.x, ply = lead.y, pfx = fol.x, pfy = fol.y;
   // if her finger never left the screen after the arrival, drawing starts as soon as it moves
-  if (S.down && !S.drawing && Math.hypot(S.px - S.anchorX, S.py - S.anchorY) > 5) startDraw();
+  if (S.down && !S.drawing && !S.keepPress && Math.hypot(S.px - S.anchorX, S.py - S.anchorY) > 5) startDraw();
   if (S.drawing) {
     const k = 1 - Math.exp(-dt * 26);
     lead.x += (S.px - lead.x) * k; lead.y += (S.py - lead.y) * k;
@@ -572,7 +623,11 @@ function update(dt) {
   else if (S.phase === 'main' && S.li > 0) want = 'l' + (S.li - 1);
   else if (after && (S.phase === 'free' || age > 1.1)) want = 'arrival';
   let others = 0;
-  for (const k in TX) if (k !== want && k !== 'tap' && k !== 'hold' && k !== 'draw') others = Math.max(others, TX[k].a);
+  for (const k in TX) if (k !== want && k !== 'tap' && k !== 'hold' && k !== 'draw' && !KEEP_KEY[k]) others = Math.max(others, TX[k].a);
+  // the keep line waits until she has played for a bit, and steps back whenever she touches the sky
+  const keepOn = KEEP.can && !KEEP.done && !!KEEP.mode && S.phase === 'free' && (!S.down || S.keepPress) &&
+    T - S.lastMove > 1.5 && (S.drawn > 120 || age > 20) && KEEP.shown < 60;
+  if (keepOn) KEEP.shown += dt;
   for (const k in TX) {
     const b = TX[k];
     if (k === 'tap') b.a += ((S.phase === 'intro' ? 0.88 + 0.12 * Math.sin(T * 2.4) : 0) - b.a) * (1 - Math.exp(-dt * 6));
@@ -582,6 +637,9 @@ function update(dt) {
     } else if (k === 'draw') {
       const show = S.phase === 'free' && S.drawn < 30 && age > 0.6;
       b.a += ((show ? 0.88 + 0.12 * Math.sin(T * 2.4) : 0) - b.a) * (1 - Math.exp(-dt * 5));
+    } else if (KEEP_KEY[k]) {
+      const show = keepOn && KEEP_KEY[k] === KEEP.mode;
+      b.a += ((show ? 1 : 0) - b.a) * (1 - Math.exp(-dt * (show ? 1.2 : 6)));       // arrives slowly, leaves quickly
     } else if (k === want) { if (others < 0.12) b.a = Math.min(1, b.a + dt * 1.25); }
     else b.a = Math.max(0, b.a - dt * 2.4);
   }
@@ -638,8 +696,9 @@ function drawString(ax, ay, bx, by, sag, sway, vib, dash) {
     plot(x, y, I_STR);
   }
 }
-function drawText(b, cx, top) {
+function drawText(b, cx, top, ink) {
   if (b.a <= 0.02) return;
+  ink = ink || I_INK;
   const x0 = Math.round(cx - b.w / 2), a = b.a, px = b.px, py = b.py, th = b.th;
   for (let k = 0; k < b.n; k++) if (th[k] < a) {
     const x = x0 + px[k] + 1, y = top + py[k] + 1;
@@ -647,7 +706,7 @@ function drawText(b, cx, top) {
   }
   for (let k = 0; k < b.n; k++) if (th[k] < a) {
     const x = x0 + px[k], y = top + py[k];
-    if (x >= 0 && x < W && y >= 0 && y < H) ob[y * W + x] = I_INK;
+    if (x >= 0 && x < W && y >= 0 && y < H) ob[y * W + x] = ink;
   }
 }
 
@@ -732,7 +791,10 @@ function render() {
 
   // words (never reflected)
   const cx = W / 2, topY = Math.round(H * 0.15), hintY = Math.round(H * 0.76);
-  for (const k in TX) drawText(TX[k], cx, k === 'tap' || k === 'hold' || k === 'draw' ? hintY : topY);
+  for (const k in TX) {
+    if (KEEP_KEY[k]) drawText(TX[k], cx, keepTop(TX[k]), I_SOFT);
+    else drawText(TX[k], cx, k === 'tap' || k === 'hold' || k === 'draw' ? hintY : topY);
+  }
 
   for (let i = 0, n = hz * W; i < n; i++) { const o = ob[i]; out[i] = SKY[o !== NONE ? o : ib[i]]; }
 
@@ -886,7 +948,7 @@ function frame(now) {
 resize();
 // for checking the piece without a finger: step time by hand, press and lift at a point
 window.__sky = {
-  state: S,
+  state: S, keep: KEEP,
   step(sec) { for (let i = 0, n = Math.round(sec * 60); i < n; i++) { T += 1 / 60; frameN++; update(1 / 60); } render(); },
   press(x, y) { S.px = x; S.py = y; press(); },
   move(x, y) { S.px = x; S.py = y; },
