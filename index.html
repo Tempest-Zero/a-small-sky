@@ -119,6 +119,7 @@ const DRIFT = 0.04;       // how fast it reopens when she lets go
 const ARRIVE_AT = 0.055;  // remaining gap at which they arrive (about 19s of holding)
 const GATES = [0.12, 0.35, 0.55, 0.72, 0.85];  // closeness at which each line appears
 const LAG = 0.5;          // seconds the second light trails her finger afterwards
+const KEEP_SECONDS = 8;   // how long the "add this to your phone" line is on screen in total, then it is gone for good
 
 const calm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -624,9 +625,9 @@ function update(dt) {
   else if (after && (S.phase === 'free' || age > 1.1)) want = 'arrival';
   let others = 0;
   for (const k in TX) if (k !== want && k !== 'tap' && k !== 'hold' && k !== 'draw' && !KEEP_KEY[k]) others = Math.max(others, TX[k].a);
-  // the keep line waits until she has played for a bit, and steps back whenever she touches the sky
+  // the keep line waits until she has played for a bit, shows for a few seconds in a pause, then never comes back
   const keepOn = KEEP.can && !KEEP.done && !!KEEP.mode && S.phase === 'free' && (!S.down || S.keepPress) &&
-    T - S.lastMove > 1.5 && (S.drawn > 120 || age > 20) && KEEP.shown < 60;
+    T - S.lastMove > 1.5 && (S.drawn > 120 || age > 20) && KEEP.shown < KEEP_SECONDS;
   if (keepOn) KEEP.shown += dt;
   for (const k in TX) {
     const b = TX[k];
@@ -639,7 +640,7 @@ function update(dt) {
       b.a += ((show ? 0.88 + 0.12 * Math.sin(T * 2.4) : 0) - b.a) * (1 - Math.exp(-dt * 5));
     } else if (KEEP_KEY[k]) {
       const show = keepOn && KEEP_KEY[k] === KEEP.mode;
-      b.a += ((show ? 1 : 0) - b.a) * (1 - Math.exp(-dt * (show ? 1.2 : 6)));       // arrives slowly, leaves quickly
+      b.a += ((show ? 1 : 0) - b.a) * (1 - Math.exp(-dt * (show ? 2.5 : S.down ? 6 : 1.5)));   // out of the way at once if she touches
     } else if (k === want) { if (others < 0.12) b.a = Math.min(1, b.a + dt * 1.25); }
     else b.a = Math.max(0, b.a - dt * 2.4);
   }
