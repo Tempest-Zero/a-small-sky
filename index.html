@@ -230,23 +230,52 @@ const FONT = {};
   }
 })();
 
-const LINE_H = 11;
+// a second, smaller font (3 wide, 5 tall) for the one line that should stay out of the way
+const SMALL = {};
+(function () {
+  const G = {
+    a: '/.##/#.#/#.#/.##', b: '#../##./#.#/#.#/##.', c: '/.##/#../#../.##', d: '..#/.##/#.#/#.#/.##',
+    e: '/.#./###/#../.##', f: '.##/#../##./#../#..', g: '/.##/#.#/.##/..#/##.', h: '#../##./#.#/#.#/#.#',
+    i: '#//#/#/#', j: '.#//.#/.#/.#/#.', k: '#../#.#/##./##./#.#', l: '#/#/#/#/#',
+    m: '/####./#.#.#/#.#.#/#.#.#', n: '/##./#.#/#.#/#.#', o: '/.#./#.#/#.#/.#.', p: '/##./#.#/#.#/##./#..',
+    q: '/.##/#.#/#.#/.##/..#', r: '/#.#/##./#../#..', s: '/.##/##./.##/##.', t: '.#./###/.#./.#./.##',
+    u: '/#.#/#.#/#.#/.##', v: '/#.#/#.#/#.#/.#.', w: '/#.#.#/#.#.#/#.#.#/.#.#.', x: '/#.#/.#./.#./#.#',
+    y: '/#.#/#.#/.##/..#/##.', z: '/###/.#./#../###',
+    A: '.#./#.#/###/#.#/#.#', B: '##./#.#/##./#.#/##.', C: '.##/#../#../#../.##', D: '##./#.#/#.#/#.#/##.',
+    E: '###/#../##./#../###', F: '###/#../##./#../#..', G: '.##/#../#.#/#.#/.##', H: '#.#/#.#/###/#.#/#.#',
+    I: '###/.#./.#./.#./###', J: '..#/..#/..#/#.#/.#.', K: '#.#/#.#/##./#.#/#.#', L: '#../#../#../#../###',
+    M: '#.#/###/###/#.#/#.#', N: '##./#.#/#.#/#.#/#.#', O: '.#./#.#/#.#/#.#/.#.', P: '##./#.#/##./#../#..',
+    Q: '.#./#.#/#.#/###/.##', R: '##./#.#/##./#.#/#.#', S: '.##/#../.#./..#/##.', T: '###/.#./.#./.#./.#.',
+    U: '#.#/#.#/#.#/#.#/###', V: '#.#/#.#/#.#/#.#/.#.', W: '#.#/#.#/###/###/#.#', X: '#.#/#.#/.#./#.#/#.#',
+    Y: '#.#/#.#/.#./.#./.#.', Z: '###/..#/.#./#../###',
+    0: '###/#.#/#.#/#.#/###', 1: '.#./##./.#./.#./###', 2: '##./..#/.#./#../###', 3: '##./..#/.#./..#/##.',
+    4: '#.#/#.#/###/..#/..#', 5: '###/#../##./..#/##.', 6: '.##/#../###/#.#/###', 7: '###/..#/.#./.#./.#.',
+    8: '###/#.#/###/#.#/###', 9: '###/#.#/###/..#/##.',
+    '?': '##./..#/.#.//.#.', '.': '////#', ',': '////.#/#.', "'": '#/#', '!': '#/#/#//#', '-': '//##', ':': '/#//#'
+  };
+  for (const ch in G) {
+    const rows = G[ch].split('/');
+    SMALL[ch] = { rows, w: Math.max(...rows.map(r => r.length)) };
+  }
+})();
+
+const LINE_H = 11, SMALL_LINE_H = 8;
 function finishBlock(xs, ys, w, h) {
   const n = xs.length, th = new Float32Array(n);
   // each pixel gets its own moment to appear: mostly noise, slightly left to right
   for (let i = 0; i < n; i++) th[i] = 0.08 + 0.84 * (0.62 * hash2(xs[i], ys[i]) + 0.38 * (xs[i] / Math.max(1, w)));
   return { px: new Int16Array(xs), py: new Int16Array(ys), th, n, w, h, a: 0 };
 }
-function wordWidth(word) { let w = 0; for (const ch of word) w += FONT[ch].w + 1; return w - 1; }
-function layoutBitmap(str, maxW) {
+function wordWidth(word, font) { let w = 0; for (const ch of word) w += font[ch].w + 1; return w - 1; }
+function layoutBitmap(str, maxW, font, lineH, gap) {
   const wrap = lim => {
     const res = [];
     for (const para of str.split('\n')) {
       let cur = '', curW = 0;
       for (const word of para.split(' ').filter(Boolean)) {
-        const ww = wordWidth(word);
-        if (cur && curW + 4 + ww > lim) { res.push([cur, curW]); cur = word; curW = ww; }
-        else { curW = cur ? curW + 4 + ww : ww; cur = cur ? cur + ' ' + word : word; }
+        const ww = wordWidth(word, font);
+        if (cur && curW + gap + ww > lim) { res.push([cur, curW]); cur = word; curW = ww; }
+        else { curW = cur ? curW + gap + ww : ww; cur = cur ? cur + ' ' + word : word; }
       }
       res.push([cur, curW]);
     }
@@ -263,16 +292,16 @@ function layoutBitmap(str, maxW) {
   lines.forEach(([txt, lw], li) => {
     let x = Math.round((bw - lw) / 2);
     for (const ch of txt) {
-      if (ch === ' ') { x += 3; continue; }
-      const gl = FONT[ch];
+      if (ch === ' ') { x += gap - 1; continue; }
+      const gl = font[ch];
       for (let ry = 0; ry < gl.rows.length; ry++) {
         const row = gl.rows[ry];
-        for (let k = 0; k < row.length; k++) if (row[k] === '#') { xs.push(x + k); ys.push(li * LINE_H + ry); }
+        for (let k = 0; k < row.length; k++) if (row[k] === '#') { xs.push(x + k); ys.push(li * lineH + ry); }
       }
       x += gl.w + 1;
     }
   });
-  return finishBlock(xs, ys, bw, lines.length * LINE_H);
+  return finishBlock(xs, ys, bw, lines.length * lineH);
 }
 // any script the bitmap font doesn't cover is rasterised from the system font instead
 function layoutRaster(str, maxW) {
@@ -295,10 +324,12 @@ function layoutRaster(str, maxW) {
   for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) if (d[(y * c.width + x) * 4 + 3] > 105) { xs.push(x); ys.push(y); }
   return finishBlock(xs, ys, maxW, c.height);
 }
-function layoutText(str, maxW) {
+function layoutText(str, maxW, small) {
   str = String(str).replace(/…/g, '...').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[—–]/g, '-');
-  for (const ch of str) if (ch !== ' ' && ch !== '\n' && !FONT[ch]) return layoutRaster(str, maxW);
-  return layoutBitmap(str, maxW);
+  const covers = font => { for (const ch of str) if (ch !== ' ' && ch !== '\n' && !font[ch]) return false; return true; };
+  if (small && covers(SMALL)) return layoutBitmap(str, maxW, SMALL, SMALL_LINE_H, 3);
+  if (!covers(FONT)) return layoutRaster(str, maxW);
+  return layoutBitmap(str, maxW, FONT, LINE_H, 4);
 }
 
 // ── canvas and fields ──
@@ -371,7 +402,7 @@ function buildTexts() {
   };
   GIFT.lines.forEach((l, i) => { defs['l' + i] = sub(l); });
   const maxW = Math.min(W - 14, 190);
-  for (const k in defs) { const a = TX[k] ? TX[k].a : 0; TX[k] = layoutText(defs[k], maxW); TX[k].a = a; }
+  for (const k in defs) { const a = TX[k] ? TX[k].a : 0; TX[k] = layoutText(defs[k], maxW, /^keep/.test(k)); TX[k].a = a; }
 }
 function resize() {
   const vw = Math.max(160, window.innerWidth), vh = Math.max(160, window.innerHeight);
